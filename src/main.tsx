@@ -7,8 +7,11 @@ import App from './App';
 import { TaipeiClockProvider } from './context/TaipeiClockContext';
 import { ensureDatabaseDefaults } from './data/database';
 import { usePreferences } from './hooks/useAppData';
+import { resetInitialRouteToHome } from './routing';
 import { createAppTheme } from './theme';
 import './index.css';
+
+resetInitialRouteToHome();
 
 if (window.isSecureContext && 'serviceWorker' in navigator) {
   registerSW({ immediate: true });

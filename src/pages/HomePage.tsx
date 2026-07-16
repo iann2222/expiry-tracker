@@ -122,7 +122,25 @@ export function HomePage() {
                           數量 {batch.quantity} · {formatExpiryValue(batch, preferences.showWeekday)}
                         </Typography>
                       </Box>
-                      <ExpiryChip batch={batch} preferences={preferences} />
+                      <Stack spacing={0.75} sx={{ alignItems: 'flex-end', flexShrink: 0 }}>
+                        <ExpiryChip batch={batch} preferences={preferences} />
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            navigate('/inventory', {
+                              state: {
+                                stock: {
+                                  productId: product.id,
+                                  batchId: batch.id,
+                                  action: 'consume',
+                                },
+                              },
+                            })
+                          }
+                        >
+                          消耗
+                        </Button>
+                      </Stack>
                     </Stack>
                   ))}
                 </Stack>
@@ -151,7 +169,30 @@ export function HomePage() {
                       sx={{ py: 1.2, alignItems: 'center', justifyContent: 'space-between' }}
                     >
                       <Typography sx={{ fontWeight: 750 }}>{product.name}</Typography>
-                      <ExpiryChip batch={batch} preferences={preferences} />
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ alignItems: 'center', flexShrink: 0 }}
+                      >
+                        <ExpiryChip batch={batch} preferences={preferences} />
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() =>
+                            navigate('/inventory', {
+                              state: {
+                                stock: {
+                                  productId: product.id,
+                                  batchId: batch.id,
+                                  action: 'discard',
+                                },
+                              },
+                            })
+                          }
+                        >
+                          處理
+                        </Button>
+                      </Stack>
                     </Stack>
                   ))}
                 </Stack>

@@ -53,9 +53,21 @@ export interface Batch {
   completedAt?: string;
 }
 
+export type BatchMovementSnapshot = Pick<
+  Batch,
+  | 'quantity'
+  | 'expiryDate'
+  | 'expiryTime'
+  | 'expiryPrecision'
+  | 'purchaseDate'
+  | 'note'
+  | 'completedAt'
+>;
+
 export type MovementType =
   | 'add'
   | 'consume'
+  | 'discard'
   | 'adjust'
   | 'restore'
   | 'archive'
@@ -63,6 +75,7 @@ export type MovementType =
 
 export interface StockMovement {
   id: string;
+  operationId?: string;
   productId: string;
   batchId?: string;
   type: MovementType;
@@ -70,6 +83,9 @@ export interface StockMovement {
   beforeQuantity: number;
   afterQuantity: number;
   note?: string;
+  revertsMovementId?: string;
+  batchBefore?: BatchMovementSnapshot;
+  batchAfter?: BatchMovementSnapshot;
   createdAt: string;
 }
 

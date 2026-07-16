@@ -37,6 +37,7 @@ interface DateTimePopoverFieldProps {
   precision?: ExpiryPrecision;
   onTimeChange?: (value: string) => void;
   onPrecisionChange?: (value: ExpiryPrecision) => void;
+  clearable?: boolean;
 }
 
 export function DateTimePopoverField({
@@ -51,6 +52,7 @@ export function DateTimePopoverField({
   precision = 'day',
   onTimeChange,
   onPrecisionChange,
+  clearable = false,
 }: DateTimePopoverFieldProps) {
   const { now } = useTaipeiClock();
   const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
@@ -58,12 +60,17 @@ export function DateTimePopoverField({
   const [draftTime, setDraftTime] = useState(time);
   const [draftPrecision, setDraftPrecision] = useState(precision);
   const currentYear = getTaipeiDateParts(now).year;
-  const yearOptions = Array.from({ length: 21 }, (_, index) => currentYear - 10 + index);
+  const parsedDraft = parseIsoDate(draftDate) ?? getTaipeiDateParts(now);
+  const firstYear = Math.min(currentYear - 10, parsedDraft.year);
+  const lastYear = Math.max(currentYear + 10, parsedDraft.year);
+  const yearOptions = Array.from(
+    { length: lastYear - firstYear + 1 },
+    (_, index) => firstYear + index,
+  );
   const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1);
   const hourOptions = Array.from({ length: 24 }, (_, index) => index);
   const minuteOptions = Array.from({ length: 60 }, (_, index) => index);
 
-  const parsedDraft = parseIsoDate(draftDate) ?? getTaipeiDateParts(now);
   const dayOptions = Array.from(
     { length: daysInMonth(parsedDraft.year, parsedDraft.month) },
     (_, index) => index + 1,
@@ -82,8 +89,7 @@ export function DateTimePopoverField({
   function openPopover(event: SyntheticEvent<HTMLElement>) {
     const fallback = getTaipeiDateParts(now);
     const parsed = parseIsoDate(date) ?? fallback;
-    const limitedYear = Math.min(currentYear + 10, Math.max(currentYear - 10, parsed.year));
-    setDraftDate(toIsoDate(clampDateParts({ ...parsed, year: limitedYear })));
+    setDraftDate(toIsoDate(parsed));
     setDraftTime(time || '00:00');
     setDraftPrecision(precision);
     setAnchorElement(event.currentTarget);
@@ -148,6 +154,7 @@ export function DateTimePopoverField({
               exclusive
               fullWidth
               size="small"
+              aria-label={`${label}精度`}
               value={draftPrecision}
               onChange={(_, value: ExpiryPrecision | null) => value && setDraftPrecision(value)}
             >
@@ -235,6 +242,18 @@ export function DateTimePopoverField({
           </Typography>
 
           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+            {clearable && date && (
+              <Button
+                color="inherit"
+                onClick={() => {
+                  onDateChange('');
+                  setAnchorElement(null);
+                }}
+                sx={{ mr: 'auto' }}
+              >
+                清除
+              </Button>
+            )}
             <Button color="inherit" onClick={() => setAnchorElement(null)}>取消</Button>
             <Button variant="contained" onClick={confirm}>套用</Button>
           </Stack>

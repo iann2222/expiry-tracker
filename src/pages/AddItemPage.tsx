@@ -28,7 +28,7 @@ import type { ExpiryPrecision, Product } from '../types';
 import { DateTimePopoverField } from '../components/DateTimePopoverField';
 
 interface AddFormValues {
-  name: string;
+  itemLabel: string;
   quantity: number;
   expiryDate: string;
   expiryTime: string;
@@ -62,7 +62,7 @@ export function AddItemPage() {
     formState: { errors, isSubmitting },
   } = useForm<AddFormValues>({
     defaultValues: {
-      name: locationState.name ?? '',
+      itemLabel: locationState.name ?? '',
       quantity: 1,
       expiryDate: '',
       expiryTime: '00:00',
@@ -73,7 +73,7 @@ export function AddItemPage() {
     },
   });
 
-  const nameRegistration = register('name', { required: '請輸入商品名稱' });
+  const nameRegistration = register('itemLabel', { required: '請輸入商品名稱' });
 
   useEffect(() => {
     if (!locationState.categoryId && categories.length > 0) {
@@ -84,8 +84,14 @@ export function AddItemPage() {
 
   async function persist(values: AddFormValues, existingProductId?: string) {
     await addInventoryBatch({
-      ...values,
+      name: values.itemLabel,
       quantity: Number(values.quantity),
+      expiryDate: values.expiryDate,
+      expiryTime: values.expiryTime,
+      expiryPrecision: values.expiryPrecision,
+      categoryId: values.categoryId,
+      purchaseDate: values.purchaseDate,
+      note: values.note,
       existingProductId,
     });
     navigate('/inventory', { replace: true });
@@ -101,7 +107,7 @@ export function AddItemPage() {
 
       const matchedProduct = await db.products
         .where('normalizedName')
-        .equals(normalizeName(values.name))
+        .equals(normalizeName(values.itemLabel))
         .first();
 
       if (matchedProduct) {
@@ -125,7 +131,7 @@ export function AddItemPage() {
         </Typography>
       </Box>
 
-      <Card component="form" onSubmit={handleSubmit(onSubmit)}>
+      <Card component="form" autoComplete="off" onSubmit={handleSubmit(onSubmit)}>
         <CardContent sx={{ p: 2.5 }}>
           <Stack spacing={2.25}>
             {submitError && <Alert severity="error">{submitError}</Alert>}
@@ -133,9 +139,18 @@ export function AddItemPage() {
               label="商品名稱"
               fullWidth
               autoFocus
-              error={Boolean(errors.name)}
-              helperText={errors.name?.message}
+              autoComplete="off"
+              error={Boolean(errors.itemLabel)}
+              helperText={errors.itemLabel?.message}
               {...nameRegistration}
+              slotProps={{
+                htmlInput: {
+                  autoComplete: 'off',
+                  'data-1p-ignore': 'true',
+                  'data-lpignore': 'true',
+                  'data-bwignore': 'true',
+                },
+              }}
               inputRef={(element) => {
                 nameRegistration.ref(element);
                 nameInputRef.current = element;
@@ -154,7 +169,7 @@ export function AddItemPage() {
                   valueAsNumber: true,
                   required: '請輸入數量',
                   min: { value: 1, message: '數量至少為 1' },
-                  validate: (value) => Number.isInteger(value) || '數量必須是整數',
+                  validate: (value) => Number.isSafeInteger(value) || '數量過大或不是整數',
                 })}
               />
               <Controller

@@ -82,6 +82,7 @@ export function SettingsPage() {
   const preferences = usePreferences();
   const categories = useCategories();
   const [draft, setDraft] = useState<AppPreferences>(preferences);
+  const [draftDirty, setDraftDirty] = useState(false);
   const [orderedCategories, setOrderedCategories] =
     useState<Category[]>(categories);
   const [categoryName, setCategoryName] = useState("");
@@ -92,6 +93,9 @@ export function SettingsPage() {
   const [backupPreview, setBackupPreview] = useState<BackupPayload | null>(
     null,
   );
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [hasRequestedSafetyBackup, setHasRequestedSafetyBackup] =
+    useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState<{
     text: string;
@@ -107,12 +111,15 @@ export function SettingsPage() {
     }),
   );
 
-  useEffect(() => setDraft(preferences), [preferences]);
+  useEffect(() => {
+    if (!draftDirty) setDraft(preferences);
+  }, [preferences]);
   useEffect(() => setOrderedCategories(categories), [categories]);
 
   const thresholdError =
-    !Number.isInteger(draft.urgentDays) || !Number.isInteger(draft.soonDays)
-      ? "天數門檻必須是整數"
+    !Number.isSafeInteger(draft.urgentDays) ||
+    !Number.isSafeInteger(draft.soonDays)
+      ? "天數門檻過大或不是整數"
       : draft.urgentDays < 0
         ? "第一個門檻不能小於 0"
         : draft.soonDays <= draft.urgentDays
@@ -121,11 +128,14 @@ export function SettingsPage() {
 
   async function savePreferences() {
     if (thresholdError) return;
-    await db.preferences.put({
+    const savedPreferences = {
       ...draft,
       id: "app",
       updatedAt: new Date().toISOString(),
-    });
+    } satisfies AppPreferences;
+    await db.preferences.put(savedPreferences);
+    setDraft(savedPreferences);
+    setDraftDirty(false);
     setMessage({ text: "偏好設定已儲存在此裝置", severity: "success" });
   }
 
@@ -188,6 +198,7 @@ export function SettingsPage() {
     if (!file) return;
     try {
       setBackupPreview(await parseBackupFile(file));
+      setHasRequestedSafetyBackup(false);
     } catch (error) {
       setMessage({
         text: error instanceof Error ? error.message : "無法讀取備份檔",
@@ -199,11 +210,50 @@ export function SettingsPage() {
   }
 
   async function confirmRestore() {
-    if (!backupPreview) return;
-    await downloadBackup();
-    await restoreBackup(backupPreview);
-    setBackupPreview(null);
-    setMessage({ text: "備份已還原", severity: "success" });
+    if (!backupPreview || !hasRequestedSafetyBackup) return;
+    setIsRestoring(true);
+    try {
+      await restoreBackup(backupPreview);
+      setDraft(backupPreview.data.preferences);
+      setBackupPreview(null);
+      setHasRequestedSafetyBackup(false);
+      setDraftDirty(false);
+      setMessage({ text: "備份已還原", severity: "success" });
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "備份還原失敗",
+        severity: "error",
+      });
+    } finally {
+      setIsRestoring(false);
+    }
+  }
+
+  async function requestSafetyBackup() {
+    try {
+      await downloadBackup();
+      setHasRequestedSafetyBackup(true);
+      setMessage({
+        text: "已送出目前資料的下載；確認下載完成後再繼續還原",
+        severity: "success",
+      });
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "無法建立還原前備份",
+        severity: "error",
+      });
+    }
+  }
+
+  async function exportBackup() {
+    try {
+      await downloadBackup();
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "備份匯出失敗",
+        severity: "error",
+      });
+    }
   }
 
   const colorText = (color: string) =>
@@ -290,9 +340,13 @@ export function SettingsPage() {
               type="number"
               label="近期到期門檻"
               value={draft.urgentDays}
-              onChange={(event) =>
-                setDraft({ ...draft, urgentDays: Number(event.target.value) })
-              }
+              onChange={(event) => {
+                setDraftDirty(true);
+                setDraft({
+                  ...draft,
+                  urgentDays: Number(event.target.value),
+                });
+              }}
               slotProps={{
                 htmlInput: { min: 0, step: 1, inputMode: "numeric" },
               }}
@@ -303,9 +357,13 @@ export function SettingsPage() {
               type="number"
               label="留意門檻"
               value={draft.soonDays}
-              onChange={(event) =>
-                setDraft({ ...draft, soonDays: Number(event.target.value) })
-              }
+              onChange={(event) => {
+                setDraftDirty(true);
+                setDraft({
+                  ...draft,
+                  soonDays: Number(event.target.value),
+                });
+              }}
               slotProps={{
                 htmlInput: {
                   min: draft.urgentDays + 1,
@@ -374,12 +432,13 @@ export function SettingsPage() {
                 type="color"
                 label={colorLabels[status]}
                 value={draft.colors[status]}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setDraftDirty(true);
                   setDraft({
                     ...draft,
                     colors: { ...draft.colors, [status]: event.target.value },
-                  })
-                }
+                  });
+                }}
                 slotProps={{ inputLabel: { shrink: true } }}
                 sx={{ "& input": { height: 38, p: 0.75, cursor: "pointer" } }}
               />
@@ -393,14 +452,15 @@ export function SettingsPage() {
             <Button
               color="inherit"
               startIcon={<RestartAltRoundedIcon />}
-              onClick={() =>
+              onClick={() => {
+                setDraftDirty(true);
                 setDraft({
                   ...draft,
                   urgentDays: defaultPreferences.urgentDays,
                   soonDays: defaultPreferences.soonDays,
                   colors: defaultPreferences.colors,
-                })
-              }
+                });
+              }}
             >
               還原預設
             </Button>
@@ -441,6 +501,7 @@ export function SettingsPage() {
             />
             <Button
               variant="outlined"
+              aria-label="新增分類"
               disabled={!categoryName.trim()}
               onClick={() => void createCategory()}
               sx={{ minWidth: 48, px: 1.5 }}
@@ -492,7 +553,7 @@ export function SettingsPage() {
               fullWidth
               variant="outlined"
               startIcon={<FileDownloadRoundedIcon />}
-              onClick={() => void downloadBackup()}
+              onClick={() => void exportBackup()}
             >
               匯出 JSON
             </Button>
@@ -546,14 +607,21 @@ export function SettingsPage() {
 
       <Dialog
         open={Boolean(backupPreview)}
-        onClose={() => setBackupPreview(null)}
+        onClose={() => {
+          if (!isRestoring) {
+            setBackupPreview(null);
+            setHasRequestedSafetyBackup(false);
+          }
+        }}
         fullWidth
         maxWidth="xs"
       >
         <DialogTitle>確認取代目前資料</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            匯入會完整取代目前資料；系統會先自動下載現有資料的備份。
+            {hasRequestedSafetyBackup
+              ? "請先確認瀏覽器下載清單中已有目前資料的備份，再執行取代。"
+              : "匯入會完整取代目前資料。下一步會先要求瀏覽器下載目前資料；瀏覽器無法回報下載是否真的完成。"}
           </Alert>
           <Stack spacing={0.75}>
             <Typography>
@@ -568,17 +636,39 @@ export function SettingsPage() {
             <Typography>
               分類：{backupPreview?.data.categories.length ?? 0} 個
             </Typography>
+            <Typography variant="caption" color="text.secondary">
+              備份格式版本：{backupPreview?.schemaVersion ?? "-"}
+            </Typography>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setBackupPreview(null)}>取消</Button>
           <Button
-            color="warning"
-            variant="contained"
-            onClick={() => void confirmRestore()}
+            disabled={isRestoring}
+            onClick={() => {
+              setBackupPreview(null);
+              setHasRequestedSafetyBackup(false);
+            }}
           >
-            取代並還原
+            取消
           </Button>
+          {hasRequestedSafetyBackup ? (
+            <Button
+              color="warning"
+              variant="contained"
+              disabled={isRestoring}
+              onClick={() => void confirmRestore()}
+            >
+              我已確認，取代並還原
+            </Button>
+          ) : (
+            <Button
+              color="warning"
+              variant="contained"
+              onClick={() => void requestSafetyBackup()}
+            >
+              先下載目前備份
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
