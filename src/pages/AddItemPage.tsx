@@ -28,7 +28,7 @@ import type { ExpiryPrecision, Product } from '../types';
 import { DateTimePopoverField } from '../components/DateTimePopoverField';
 
 interface AddFormValues {
-  itemLabel: string;
+  name: string;
   quantity: number;
   expiryDate: string;
   expiryTime: string;
@@ -62,7 +62,7 @@ export function AddItemPage() {
     formState: { errors, isSubmitting },
   } = useForm<AddFormValues>({
     defaultValues: {
-      itemLabel: locationState.name ?? '',
+      name: locationState.name ?? '',
       quantity: 1,
       expiryDate: '',
       expiryTime: '00:00',
@@ -73,7 +73,7 @@ export function AddItemPage() {
     },
   });
 
-  const nameRegistration = register('itemLabel', { required: '請輸入商品名稱' });
+  const nameRegistration = register('name', { required: '請輸入商品名稱' });
 
   useEffect(() => {
     if (!locationState.categoryId && categories.length > 0) {
@@ -84,7 +84,7 @@ export function AddItemPage() {
 
   async function persist(values: AddFormValues, existingProductId?: string) {
     await addInventoryBatch({
-      name: values.itemLabel,
+      name: values.name,
       quantity: Number(values.quantity),
       expiryDate: values.expiryDate,
       expiryTime: values.expiryTime,
@@ -107,7 +107,7 @@ export function AddItemPage() {
 
       const matchedProduct = await db.products
         .where('normalizedName')
-        .equals(normalizeName(values.itemLabel))
+        .equals(normalizeName(values.name))
         .first();
 
       if (matchedProduct) {
@@ -131,7 +131,7 @@ export function AddItemPage() {
         </Typography>
       </Box>
 
-      <Card component="form" autoComplete="off" onSubmit={handleSubmit(onSubmit)}>
+      <Card component="form" onSubmit={handleSubmit(onSubmit)}>
         <CardContent sx={{ p: 2.5 }}>
           <Stack spacing={2.25}>
             {submitError && <Alert severity="error">{submitError}</Alert>}
@@ -140,17 +140,9 @@ export function AddItemPage() {
               fullWidth
               autoFocus
               autoComplete="off"
-              error={Boolean(errors.itemLabel)}
-              helperText={errors.itemLabel?.message}
+              error={Boolean(errors.name)}
+              helperText={errors.name?.message}
               {...nameRegistration}
-              slotProps={{
-                htmlInput: {
-                  autoComplete: 'off',
-                  'data-1p-ignore': 'true',
-                  'data-lpignore': 'true',
-                  'data-bwignore': 'true',
-                },
-              }}
               inputRef={(element) => {
                 nameRegistration.ref(element);
                 nameInputRef.current = element;
@@ -161,6 +153,7 @@ export function AddItemPage() {
               <TextField
                 label="數量"
                 type="number"
+                autoComplete="off"
                 fullWidth
                 error={Boolean(errors.quantity)}
                 helperText={errors.quantity?.message}
@@ -232,7 +225,14 @@ export function AddItemPage() {
                       />
                     )}
                   />
-                  <TextField label="備註" fullWidth multiline minRows={2} {...register('note')} />
+                  <TextField
+                    label="備註"
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    autoComplete="off"
+                    {...register('note')}
+                  />
                 </Stack>
               </AccordionDetails>
             </Accordion>

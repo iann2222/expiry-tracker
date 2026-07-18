@@ -339,6 +339,7 @@ export function SettingsPage() {
               fullWidth
               type="number"
               label="近期到期門檻"
+              autoComplete="off"
               value={draft.urgentDays}
               onChange={(event) => {
                 setDraftDirty(true);
@@ -356,6 +357,7 @@ export function SettingsPage() {
               fullWidth
               type="number"
               label="留意門檻"
+              autoComplete="off"
               value={draft.soonDays}
               onChange={(event) => {
                 setDraftDirty(true);
@@ -490,6 +492,7 @@ export function SettingsPage() {
               size="small"
               fullWidth
               label="新的分類名稱"
+              autoComplete="off"
               value={categoryName}
               onChange={(event) => setCategoryName(event.target.value)}
               onKeyDown={(event) => {

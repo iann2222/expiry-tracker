@@ -420,6 +420,7 @@ export function InventoryPage() {
           fullWidth
           size="small"
           placeholder="搜尋商品"
+          autoComplete="off"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           slotProps={{
@@ -704,6 +705,7 @@ export function InventoryPage() {
               autoFocus
               label="處理數量"
               type="number"
+              autoComplete="off"
               value={stockAmount}
               onChange={(event) => setStockAmount(event.target.value)}
               helperText={`可用數量 ${availableQuantity}`}
@@ -717,6 +719,7 @@ export function InventoryPage() {
                   ? '丟棄原因（必填）'
                   : '備註（選填）'
               }
+              autoComplete="off"
               value={stockNote}
               onChange={(event) => setStockNote(event.target.value)}
               multiline
@@ -771,6 +774,7 @@ export function InventoryPage() {
                 autoFocus
                 label="盤點後數量"
                 type="number"
+                autoComplete="off"
                 value={batchDraft.quantity}
                 onChange={(event) =>
                   setBatchDraft({ ...batchDraft, quantity: event.target.value })
@@ -800,6 +804,7 @@ export function InventoryPage() {
               />
               <TextField
                 label="批次備註"
+                autoComplete="off"
                 value={batchDraft.note}
                 onChange={(event) => setBatchDraft({ ...batchDraft, note: event.target.value })}
                 multiline
@@ -807,6 +812,7 @@ export function InventoryPage() {
               />
               <TextField
                 label="調整原因"
+                autoComplete="off"
                 value={batchDraft.reason}
                 onChange={(event) => setBatchDraft({ ...batchDraft, reason: event.target.value })}
                 helperText="盤點數量有變更時必填；只改日期或備註可留空。"
@@ -841,6 +847,7 @@ export function InventoryPage() {
             <TextField
               autoFocus
               label="商品名稱"
+              autoComplete="off"
               value={editName}
               onChange={(event) => setEditName(event.target.value)}
               error={Boolean(dialogError)}

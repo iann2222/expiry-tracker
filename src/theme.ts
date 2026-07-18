@@ -39,11 +39,6 @@ export function createAppTheme(mode: PaletteMode) {
       button: { fontWeight: 700, textTransform: 'none' },
     },
     components: {
-      MuiTextField: {
-        defaultProps: {
-          autoComplete: 'off',
-        },
-      },
       MuiCssBaseline: {
         styleOverrides: {
           html: { colorScheme: mode },

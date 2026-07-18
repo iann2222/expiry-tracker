@@ -16,7 +16,7 @@ describe('AddItemPage autofill behavior', () => {
 
   afterEach(() => cleanup());
 
-  it('does not expose the product field as a credential input', async () => {
+  it('disables autofill for editable text and number fields', async () => {
     render(
       <ThemeProvider theme={createAppTheme('light')}>
         <TaipeiClockProvider>
@@ -28,9 +28,11 @@ describe('AddItemPage autofill behavior', () => {
     );
 
     const productInput = await screen.findByLabelText('商品名稱');
-    expect(productInput).toHaveAttribute('name', 'itemLabel');
+    expect(productInput).toHaveAttribute('name', 'name');
     expect(productInput).toHaveAttribute('autocomplete', 'off');
-    expect(productInput).toHaveAttribute('data-1p-ignore', 'true');
-    expect(productInput.closest('form')).toHaveAttribute('autocomplete', 'off');
+    expect(productInput).not.toHaveAttribute('data-1p-ignore');
+    expect(productInput.closest('form')).not.toHaveAttribute('autocomplete');
+    expect(screen.getByLabelText('數量')).toHaveAttribute('autocomplete', 'off');
+    expect(screen.getByLabelText('備註')).toHaveAttribute('autocomplete', 'off');
   });
 });

@@ -22,6 +22,9 @@ describe('SettingsPage preference drafts', () => {
     );
 
     const urgentInput = await screen.findByLabelText('近期到期門檻');
+    expect(urgentInput).toHaveAttribute('autocomplete', 'off');
+    expect(screen.getByLabelText('留意門檻')).toHaveAttribute('autocomplete', 'off');
+    expect(screen.getByLabelText('新的分類名稱')).toHaveAttribute('autocomplete', 'off');
     fireEvent.change(urgentInput, { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: '深色' }));
 
