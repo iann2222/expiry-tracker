@@ -53,6 +53,8 @@ export function AddItemPage() {
   const [duplicate, setDuplicate] = useState<Product | null>(null);
   const [pendingValues, setPendingValues] = useState<AddFormValues | null>(null);
   const [submitError, setSubmitError] = useState('');
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const {
     register,
@@ -83,18 +85,29 @@ export function AddItemPage() {
   }, [categories, locationState.categoryId, setValue]);
 
   async function persist(values: AddFormValues, existingProductId?: string) {
-    await addInventoryBatch({
-      name: values.name,
-      quantity: Number(values.quantity),
-      expiryDate: values.expiryDate,
-      expiryTime: values.expiryTime,
-      expiryPrecision: values.expiryPrecision,
-      categoryId: values.categoryId,
-      purchaseDate: values.purchaseDate,
-      note: values.note,
-      existingProductId,
-    });
-    navigate('/inventory', { replace: true });
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSubmitError('');
+    try {
+      await addInventoryBatch({
+        name: values.name,
+        quantity: Number(values.quantity),
+        expiryDate: values.expiryDate,
+        expiryTime: values.expiryTime,
+        expiryPrecision: values.expiryPrecision,
+        categoryId: values.categoryId,
+        purchaseDate: values.purchaseDate,
+        note: values.note,
+        existingProductId,
+      });
+      navigate('/inventory', { replace: true });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '新增失敗，請稍後再試');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   async function onSubmit(values: AddFormValues) {
@@ -241,7 +254,7 @@ export function AddItemPage() {
               type="submit"
               variant="contained"
               size="large"
-              disabled={isSubmitting}
+              disabled={isSubmitting || saving}
               startIcon={<InventoryRoundedIcon />}
             >
               儲存商品
@@ -250,9 +263,10 @@ export function AddItemPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={Boolean(duplicate)} onClose={() => setDuplicate(null)} fullWidth maxWidth="xs">
+      <Dialog open={Boolean(duplicate)} onClose={() => !savingRef.current && setDuplicate(null)} fullWidth maxWidth="xs">
         <DialogTitle>發現同名商品</DialogTitle>
         <DialogContent>
+          {submitError && <Alert severity="error">{submitError}</Alert>}
           <Typography>
             已存在「<strong>{duplicate?.name}</strong>」，這次新增的是同一項商品嗎？
           </Typography>
@@ -262,6 +276,7 @@ export function AddItemPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button
+            disabled={saving}
             onClick={() => {
               setDuplicate(null);
               requestAnimationFrame(() => nameInputRef.current?.focus());
@@ -271,6 +286,7 @@ export function AddItemPage() {
           </Button>
           <Button
             variant="contained"
+            disabled={saving}
             onClick={() => {
               if (pendingValues && duplicate) {
                 void persist({ ...pendingValues, categoryId: duplicate.categoryId }, duplicate.id);

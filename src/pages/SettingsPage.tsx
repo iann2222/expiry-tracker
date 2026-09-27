@@ -94,6 +94,8 @@ export function SettingsPage() {
     null,
   );
   const [isRestoring, setIsRestoring] = useState(false);
+  const writePending = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [hasRequestedSafetyBackup, setHasRequestedSafetyBackup] =
     useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -126,72 +128,97 @@ export function SettingsPage() {
           ? "第二個門檻必須大於第一個門檻"
           : "";
 
-  async function savePreferences() {
-    if (thresholdError) return;
-    const savedPreferences = {
-      ...draft,
-      id: "app",
-      updatedAt: new Date().toISOString(),
-    } satisfies AppPreferences;
-    await db.preferences.put(savedPreferences);
-    setDraft(savedPreferences);
-    setDraftDirty(false);
-    setMessage({ text: "偏好設定已儲存在此裝置", severity: "success" });
-  }
-
-  async function saveAppearance(partial: Partial<AppPreferences>) {
-    await db.preferences.put({
-      ...preferences,
-      ...partial,
-      id: "app",
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  async function createCategory() {
+  async function runWrite(action: () => Promise<void>, fallback: string) {
+    if (writePending.current) return;
+    writePending.current = true;
+    setIsSaving(true);
     try {
-      await addCustomCategory(categoryName);
-      setCategoryName("");
-      setMessage({ text: "已新增分類", severity: "success" });
+      await action();
     } catch (error) {
-      setMessage({
-        text: error instanceof Error ? error.message : "新增分類失敗",
-        severity: "error",
-      });
+      setMessage({ text: error instanceof Error ? error.message : fallback, severity: "error" });
+    } finally {
+      writePending.current = false;
+      setIsSaving(false);
     }
   }
 
+  async function savePreferences() {
+    if (thresholdError) return;
+    await runWrite(async () => {
+      const savedPreferences = {
+        ...draft,
+        id: "app",
+        updatedAt: new Date().toISOString(),
+      } satisfies AppPreferences;
+      await db.preferences.put(savedPreferences);
+      setDraft(savedPreferences);
+      setDraftDirty(false);
+      setMessage({ text: "偏好設定已儲存在此裝置", severity: "success" });
+    }, "偏好設定儲存失敗");
+  }
+
+  async function saveAppearance(partial: Partial<AppPreferences>) {
+    await runWrite(async () => {
+      await db.preferences.put({
+        ...preferences,
+        ...partial,
+        id: "app",
+        updatedAt: new Date().toISOString(),
+      });
+    }, "外觀設定儲存失敗");
+  }
+
+  async function createCategory() {
+    await runWrite(async () => {
+      await addCustomCategory(categoryName);
+      setCategoryName("");
+      setMessage({ text: "已新增分類", severity: "success" });
+    }, "新增分類失敗");
+  }
+
   async function requestDelete(category: Category) {
-    setDeleteTarget({
-      category,
-      productCount: await countProductsInCategory(category.id),
-    });
+    await runWrite(async () => {
+      setDeleteTarget({
+        category,
+        productCount: await countProductsInCategory(category.id),
+      });
+    }, "無法讀取分類資料");
   }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
-    const affected = await deleteCategory(deleteTarget.category.id);
-    setDeleteTarget(null);
-    setMessage({
-      text:
-        affected > 0
-          ? `已刪除分類，${affected} 項商品改為未分類`
-          : "已刪除分類",
-      severity: "success",
-    });
+    await runWrite(async () => {
+      const affected = await deleteCategory(deleteTarget.category.id);
+      setDeleteTarget(null);
+      setMessage({
+        text:
+          affected > 0
+            ? `已刪除分類，${affected} 項商品改為未分類`
+            : "已刪除分類",
+        severity: "success",
+      });
+    }, "刪除分類失敗");
   }
 
   async function handleDragEnd(event: DragEndEvent) {
-    if (!event.over || event.active.id === event.over.id) return;
+    if (writePending.current || !event.over || event.active.id === event.over.id) return;
     const oldIndex = orderedCategories.findIndex(
       (category) => category.id === event.active.id,
     );
     const newIndex = orderedCategories.findIndex(
       (category) => category.id === event.over?.id,
     );
-    const next = arrayMove(orderedCategories, oldIndex, newIndex);
-    setOrderedCategories(next);
-    await reorderCategories(next.map((category) => category.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    await runWrite(async () => {
+      const next = arrayMove(orderedCategories, oldIndex, newIndex);
+      setOrderedCategories(next);
+      try {
+        await reorderCategories(next.map((category) => category.id));
+      } catch (error) {
+        setOrderedCategories(categories);
+        throw error;
+      }
+    }, "分類排序儲存失敗");
   }
 
   async function handleImportFile(file: File | undefined) {
@@ -211,22 +238,19 @@ export function SettingsPage() {
 
   async function confirmRestore() {
     if (!backupPreview || !hasRequestedSafetyBackup) return;
-    setIsRestoring(true);
-    try {
-      await restoreBackup(backupPreview);
-      setDraft(backupPreview.data.preferences);
-      setBackupPreview(null);
-      setHasRequestedSafetyBackup(false);
-      setDraftDirty(false);
-      setMessage({ text: "備份已還原", severity: "success" });
-    } catch (error) {
-      setMessage({
-        text: error instanceof Error ? error.message : "備份還原失敗",
-        severity: "error",
-      });
-    } finally {
-      setIsRestoring(false);
-    }
+    await runWrite(async () => {
+      setIsRestoring(true);
+      try {
+        await restoreBackup(backupPreview);
+        setDraft(backupPreview.data.preferences);
+        setBackupPreview(null);
+        setHasRequestedSafetyBackup(false);
+        setDraftDirty(false);
+        setMessage({ text: "備份已還原", severity: "success" });
+      } finally {
+        setIsRestoring(false);
+      }
+    }, "備份還原失敗");
   }
 
   async function requestSafetyBackup() {
@@ -260,7 +284,7 @@ export function SettingsPage() {
     theme.palette.mode === "dark" ? lighten(color, 0.08) : darken(color, 0.28);
 
   return (
-    <Stack spacing={2}>
+    <Stack component="fieldset" disabled={isSaving} spacing={2} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
       <Card>
         <CardContent sx={{ p: 2.5 }}>
           <Typography variant="h2">外觀與日期</Typography>
@@ -468,7 +492,7 @@ export function SettingsPage() {
             </Button>
             <Button
               variant="contained"
-              disabled={Boolean(thresholdError)}
+              disabled={isSaving || Boolean(thresholdError)}
               onClick={() => void savePreferences()}
             >
               儲存效期偏好
@@ -505,7 +529,7 @@ export function SettingsPage() {
             <Button
               variant="outlined"
               aria-label="新增分類"
-              disabled={!categoryName.trim()}
+              disabled={isSaving || !categoryName.trim()}
               onClick={() => void createCategory()}
               sx={{ minWidth: 48, px: 1.5 }}
             >
@@ -588,7 +612,7 @@ export function SettingsPage() {
 
       <Dialog
         open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => !writePending.current && setDeleteTarget(null)}
         fullWidth
         maxWidth="xs"
       >
@@ -601,8 +625,8 @@ export function SettingsPage() {
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setDeleteTarget(null)}>取消</Button>
-          <Button color="error" onClick={() => void confirmDelete()}>
+          <Button disabled={isSaving} onClick={() => setDeleteTarget(null)}>取消</Button>
+          <Button disabled={isSaving} color="error" onClick={() => void confirmDelete()}>
             刪除分類
           </Button>
         </DialogActions>
