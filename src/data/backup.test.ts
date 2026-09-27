@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createBackup,
+  serializeBackup,
+  MAX_BACKUP_BYTES,
   parseBackupFile,
   restoreBackup,
   type BackupPayload,
@@ -40,6 +42,26 @@ async function addProduct(name = '備份測試', quantity = 2) {
 }
 
 describe('backup safety', () => {
+  it('round-trips serialized downloads at the byte limit and rejects oversized exports', async () => {
+    await addProduct();
+    const payload = await createBackup();
+    const text = serializeBackup(payload);
+    expect(await parseBackupFile({ size: new Blob([text]).size, text: async () => text } as File))
+      .toEqual(payload);
+    const extraBytes = MAX_BACKUP_BYTES - new Blob([text]).size;
+    payload.data.batches[0].note += 'x'.repeat(extraBytes);
+    const boundary = serializeBackup(payload);
+    expect(new Blob([boundary]).size).toBe(MAX_BACKUP_BYTES);
+    await expect(parseBackupFile({ size: MAX_BACKUP_BYTES, text: async () => boundary } as File))
+      .resolves.toMatchObject({ schemaVersion: 3 });
+    payload.data.batches[0].note += '中';
+    expect(() => serializeBackup(payload)).toThrow('已停止匯出');
+    const read = vi.fn();
+    await expect(parseBackupFile({ size: MAX_BACKUP_BYTES + 1, text: read } as unknown as File))
+      .rejects.toThrow('備份檔不可超過');
+    expect(read).not.toHaveBeenCalled();
+    expect(await db.batches.count()).toBe(1);
+  });
   beforeEach(async () => {
     vi.restoreAllMocks();
     await db.delete();

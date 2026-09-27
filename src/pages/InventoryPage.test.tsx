@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { TaipeiClockProvider } from '../context/TaipeiClockContext';
-import { addInventoryBatch, db, ensureDatabaseDefaults } from '../data/database';
+import { addInventoryBatch, db, ensureDatabaseDefaults, consumeProduct } from '../data/database';
 import { createAppTheme } from '../theme';
 import { InventoryPage } from './InventoryPage';
 
@@ -34,6 +34,22 @@ describe('InventoryPage stock operations', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('preserves a stale draft without overwriting stock consumed elsewhere', async () => {
+    renderPage();
+    expect(await screen.findByText('UI 測試食品')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看批次' }));
+    fireEvent.click(await screen.findByRole('button', { name: '編輯批次' }));
+    const note = await screen.findByLabelText('批次備註');
+    fireEvent.change(note, { target: { value: '未儲存備註' } });
+    const batch = (await db.batches.toArray())[0];
+    await consumeProduct(batch.productId, 1, false);
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('批次已被其他操作修改，請返回批次詳情並重新開啟編輯')).toBeInTheDocument();
+    expect(note).toHaveValue('未儲存備註');
+    expect((await db.batches.get(batch.id))?.quantity).toBe(0);
+    expect(await db.movements.where('type').equals('adjust').count()).toBe(0);
+  });
 
   it('opens batch details and records a batch-specific discard with a reason', async () => {
     renderPage();

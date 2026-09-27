@@ -530,6 +530,7 @@ export async function updateBatch(
     note?: string;
     reason?: string;
   },
+  expected?: Batch,
 ): Promise<boolean> {
   const normalizedFields = validateBatchFields(input);
   const normalizedNote = normalizeOptionalText(input.note);
@@ -538,6 +539,14 @@ export async function updateBatch(
   return db.transaction('rw', db.products, db.batches, db.movements, async () => {
     const batch = await db.batches.get(batchId);
     if (!batch) throw new Error('找不到這個批次');
+    if (expected && (
+      batch.id !== expected.id || batch.productId !== expected.productId ||
+      batch.updatedAt !== expected.updatedAt || batch.createdAt !== expected.createdAt ||
+      batch.initialQuantity !== expected.initialQuantity ||
+      !batchMatchesSnapshot(batch, createBatchMovementSnapshot(expected))
+    )) {
+      throw new Error('批次已被其他操作修改，請返回批次詳情並重新開啟編輯');
+    }
     const product = await db.products.get(batch.productId);
     if (!product) throw new Error('找不到這個商品');
     if (batch.quantity !== input.quantity && !reason) {
@@ -737,10 +746,20 @@ export async function restoreStockOperation(movementId: string): Promise<string>
 export async function updateProduct(
   productId: string,
   input: { name: string; categoryId: string },
+  expected?: Product,
 ): Promise<void> {
   const normalizedName = normalizeName(input.name);
   if (!normalizedName) throw new Error('請輸入商品名稱');
   await db.transaction('rw', db.products, db.categories, async () => {
+    const product = await db.products.get(productId);
+    if (!product) throw new Error('找不到這個商品');
+    if (expected && (
+      product.id !== expected.id || product.updatedAt !== expected.updatedAt ||
+      product.createdAt !== expected.createdAt || product.name !== expected.name ||
+      product.categoryId !== expected.categoryId || product.archived !== expected.archived
+    )) {
+      throw new Error('商品已被其他操作修改，請關閉並重新開啟編輯');
+    }
     if (input.categoryId && !(await db.categories.get(input.categoryId))) {
       throw new Error('找不到所選分類');
     }

@@ -10,6 +10,7 @@ import {
   restoreStockOperation,
   setProductArchived,
   updateBatch,
+  updateProduct,
 } from './database';
 
 async function getCategoryId(): Promise<string> {
@@ -39,6 +40,35 @@ async function addTestBatch(input?: {
 }
 
 describe('inventory database', () => {
+  it('rejects stale batch drafts even when timestamps are equal, without changing history', async () => {
+    const { productId, batchId } = await addTestBatch();
+    const original = (await db.batches.get(batchId))!;
+    await consumeProduct(productId, 1, false);
+    await db.batches.update(batchId, { updatedAt: original.updatedAt });
+    const before = await db.batches.get(batchId);
+    const count = await db.movements.count();
+    await expect(updateBatch(batchId, {
+      quantity: original.quantity, expiryDate: original.expiryDate,
+      expiryPrecision: original.expiryPrecision, note: '舊草稿', reason: '測試',
+    }, original)).rejects.toThrow('批次已被其他操作修改');
+    expect(await db.batches.get(batchId)).toEqual(before);
+    expect(await db.movements.count()).toBe(count);
+    await expect(updateBatch(batchId, {
+      quantity: before!.quantity, expiryDate: before!.expiryDate,
+      expiryPrecision: before!.expiryPrecision, note: '重新開啟後儲存',
+    }, before)).resolves.toBe(true);
+  });
+
+  it('rejects stale product edits and missing products', async () => {
+    const { productId } = await addTestBatch();
+    const original = (await db.products.get(productId))!;
+    await updateProduct(productId, { name: '新名稱', categoryId: '' }, original);
+    await expect(updateProduct(productId, { name: '舊草稿', categoryId: '' }, original))
+      .rejects.toThrow('商品已被其他操作修改');
+    expect((await db.products.get(productId))?.name).toBe('新名稱');
+    await expect(updateProduct('missing', { name: '不存在', categoryId: '' }))
+      .rejects.toThrow('找不到這個商品');
+  });
   beforeEach(async () => {
     await db.delete();
     await db.open();

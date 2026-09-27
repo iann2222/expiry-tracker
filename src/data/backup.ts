@@ -344,9 +344,19 @@ export async function createBackup(): Promise<BackupPayload> {
   });
 }
 
+export const MAX_BACKUP_BYTES = 10 * 1024 * 1024;
+
+export function serializeBackup(payload: BackupPayload): string {
+  const text = JSON.stringify(prepareBackupPayload(payload), null, 2);
+  if (new Blob([text]).size > MAX_BACKUP_BYTES) {
+    throw new Error('備份超過 10 MB，已停止匯出；目前資料未變更，請勿清除資料或執行取代還原');
+  }
+  return text;
+}
+
 export async function downloadBackup(): Promise<void> {
   const payload = await createBackup();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const blob = new Blob([serializeBackup(payload)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -358,7 +368,7 @@ export async function downloadBackup(): Promise<void> {
 }
 
 export async function parseBackupFile(file: File): Promise<BackupPayload> {
-  if (file.size > 10 * 1024 * 1024) throw new Error('備份檔不可超過 10 MB');
+  if (file.size > MAX_BACKUP_BYTES) throw new Error('備份檔不可超過 10 MB');
   let value: unknown;
   try {
     value = JSON.parse(await file.text());

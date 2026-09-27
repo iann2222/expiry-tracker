@@ -89,6 +89,7 @@ interface InventoryLocationState {
 }
 
 interface BatchDraft {
+  original: Batch;
   quantity: string;
   expiryDate: string;
   expiryTime: string;
@@ -116,6 +117,7 @@ export function InventoryPage() {
   const [archiveWhenEmpty, setArchiveWhenEmpty] = useState(true);
   const [batchDraft, setBatchDraft] = useState<BatchDraft | null>(null);
   const [editName, setEditName] = useState('');
+  const [editOriginal, setEditOriginal] = useState<Product | null>(null);
   const [editCategoryId, setEditCategoryId] = useState('');
   const [dialogError, setDialogError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -224,6 +226,7 @@ export function InventoryPage() {
   }
 
   function openProductEdit(product: Product) {
+    setEditOriginal({ ...product });
     setOverlay({ kind: 'product-edit', productId: product.id });
     setEditName(product.name);
     setEditCategoryId(product.categoryId);
@@ -233,6 +236,7 @@ export function InventoryPage() {
   function openBatchEdit(productId: string, batch: Batch) {
     setOverlay({ kind: 'batch-edit', productId, batchId: batch.id });
     setBatchDraft({
+      original: { ...batch },
       quantity: String(batch.quantity),
       expiryDate: batch.expiryDate,
       expiryTime: batch.expiryTime ?? '00:00',
@@ -282,11 +286,11 @@ export function InventoryPage() {
   }
 
   async function saveProduct() {
-    if (overlay?.kind !== 'product-edit') return;
+    if (overlay?.kind !== 'product-edit' || !editOriginal) return;
     setSaving(true);
     setDialogError('');
     try {
-      await updateProduct(overlay.productId, { name: editName, categoryId: editCategoryId });
+      await updateProduct(overlay.productId, { name: editName, categoryId: editCategoryId }, editOriginal);
       setOverlay(null);
       setMessage('商品資料已更新');
     } catch (error) {
@@ -314,7 +318,7 @@ export function InventoryPage() {
         purchaseDate: batchDraft.purchaseDate,
         note: batchDraft.note,
         reason: batchDraft.reason,
-      });
+      }, batchDraft.original);
       setOverlay({ kind: 'details', productId: overlay.productId });
       setMessage(changed ? '批次資料已更新' : '批次資料沒有變更');
     } catch (error) {
