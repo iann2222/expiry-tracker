@@ -16,12 +16,13 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  TextField,
   Snackbar,
   Stack,
   Typography,
 } from '@mui/material';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { db, restoreStockOperation } from '../data/database';
 import {
@@ -29,7 +30,8 @@ import {
   getRestorableOperationIds,
   groupMovements,
 } from '../domain/movements';
-import { formatExpiryValue } from '../domain/taipeiTime';
+import { formatExpiryValue, getTaipeiToday } from '../domain/taipeiTime';
+import { normalizeName } from '../domain/inventory';
 import type { MovementType, StockMovement } from '../types';
 
 const movementInfo: Record<
@@ -81,15 +83,36 @@ export function HistoryPage() {
   const [restoreTarget, setRestoreTarget] = useState<RestoreTarget | null>(null);
   const [restoreError, setRestoreError] = useState('');
   const [restoring, setRestoring] = useState(false);
+  const restoringRef = useRef(false);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [page, setPage] = useState(1);
   const [message, setMessage] = useState<string | null>(null);
 
   const productNames = new Map(data.products.map((product) => [product.id, product.name]));
   const batchesById = new Map(data.batches.map((batch) => [batch.id, batch]));
   const groups = groupMovements(data.movements);
   const restorableOperationIds = getRestorableOperationIds(data.movements, data.batches);
+  const restoredIds = new Set(data.movements.map((movement) => movement.revertsMovementId).filter(Boolean));
+  const invalidRange = Boolean(startDate && endDate && startDate > endDate);
+  const filtered = groups.filter((group) => {
+    if (invalidRange) return false;
+    const primary = getPrimaryMovement(group);
+    const name = productNames.get(primary.productId) ?? '已移除商品';
+    const day = getTaipeiToday(new Date(primary.createdAt));
+    return normalizeName(name).includes(normalizeName(query)) &&
+      (typeFilter === 'all' || primary.type === typeFilter) &&
+      (!startDate || day >= startDate) && (!endDate || day <= endDate);
+  });
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
+  const currentPage = Math.min(page, pageCount);
+  const visibleGroups = filtered.slice((currentPage - 1) * 20, currentPage * 20);
 
   async function confirmRestore() {
-    if (!restoreTarget) return;
+    if (!restoreTarget || restoringRef.current) return;
+    restoringRef.current = true;
     setRestoring(true);
     setRestoreError('');
     try {
@@ -99,6 +122,7 @@ export function HistoryPage() {
     } catch (error) {
       setRestoreError(error instanceof Error ? error.message : '無法復原這筆異動');
     } finally {
+      restoringRef.current = false;
       setRestoring(false);
     }
   }
@@ -114,10 +138,31 @@ export function HistoryPage() {
 
   return (
     <>
+      <Stack spacing={1.5} sx={{ mb: 2 }}>
+        <TextField label="搜尋歷史商品" autoComplete="off" value={query}
+          onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
+        <TextField select label="異動類型" value={typeFilter} slotProps={{ select: { native: true } }}
+          onChange={(event) => { setTypeFilter(event.target.value); setPage(1); }}>
+          <option value="all">全部類型</option>
+          {Object.entries(movementInfo).map(([type, info]) => <option key={type} value={type}>{info.label}</option>)}
+        </TextField>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+          <TextField fullWidth label="開始日期" type="date" autoComplete="off" value={startDate}
+            slotProps={{ inputLabel: { shrink: true } }}
+            onChange={(event) => { setStartDate(event.target.value); setPage(1); }} />
+          <TextField fullWidth label="結束日期" type="date" autoComplete="off" value={endDate}
+            slotProps={{ inputLabel: { shrink: true } }}
+            onChange={(event) => { setEndDate(event.target.value); setPage(1); }} />
+        </Stack>
+        <Typography variant="caption">日期依台北時間，包含起訖當日；共 {filtered.length} 筆操作</Typography>
+        {invalidRange && <Alert severity="warning">開始日期不可晚於結束日期</Alert>}
+        <Button onClick={() => { setQuery(''); setTypeFilter('all'); setStartDate(''); setEndDate(''); setPage(1); }}>清除查詢條件</Button>
+      </Stack>
+      {filtered.length === 0 && <Alert severity="info">找不到符合條件的異動紀錄</Alert>}
       <Card>
         <CardContent sx={{ p: 2.25 }}>
           <Stack divider={<Divider flexItem />}>
-            {groups.map((group) => {
+            {visibleGroups.map((group) => {
               const primary = getPrimaryMovement(group);
               const info = movementInfo[primary.type];
               const Icon = info.icon;
@@ -137,13 +182,7 @@ export function HistoryPage() {
                 Boolean(reversibleMovement) && restorableOperationIds.has(group.id);
               const wasRestored =
                 Boolean(reversibleMovement) &&
-                data.movements.some(
-                  (movement) =>
-                    movement.type === 'restore' &&
-                    group.movements.some(
-                      (source) => movement.revertsMovementId === source.id,
-                    ),
-                );
+                group.movements.some((source) => restoredIds.has(source.id));
               const note =
                 primary.note ??
                 group.movements.find((movement) => movement.note)?.note;
@@ -266,10 +305,15 @@ export function HistoryPage() {
           </Stack>
         </CardContent>
       </Card>
+      <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'center', justifyContent: 'center' }}>
+        <Button disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>上一頁</Button>
+        <Typography>第 {currentPage} / {pageCount} 頁</Typography>
+        <Button disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>下一頁</Button>
+      </Stack>
 
       <Dialog
         open={Boolean(restoreTarget)}
-        onClose={() => setRestoreTarget(null)}
+        onClose={() => !restoringRef.current && setRestoreTarget(null)}
         fullWidth
         maxWidth="xs"
       >
@@ -286,7 +330,7 @@ export function HistoryPage() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setRestoreTarget(null)}>取消</Button>
+          <Button disabled={restoring} onClick={() => setRestoreTarget(null)}>取消</Button>
           <Button
             variant="contained"
             disabled={restoring}

@@ -36,7 +36,7 @@ import {
   useTheme,
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DateTimePopoverField } from '../components/DateTimePopoverField';
 import { EmptyState } from '../components/EmptyState';
@@ -111,6 +111,8 @@ export function InventoryPage() {
   const archivedProducts = useArchivedProducts();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<InventoryFilter>('all');
+  const [categoryFilter, setCategoryFilter] = useState('*');
+  const [sort, setSort] = useState('expiry');
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [stockAmount, setStockAmount] = useState('1');
   const [stockNote, setStockNote] = useState('');
@@ -121,6 +123,7 @@ export function InventoryPage() {
   const [editCategoryId, setEditCategoryId] = useState('');
   const [dialogError, setDialogError] = useState('');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
@@ -138,18 +141,24 @@ export function InventoryPage() {
   const visibleRows = useMemo(() => {
     if (filter === 'archived') return [];
     return rows.filter((row) => {
+      if (categoryFilter !== '*' && row.product.categoryId !== categoryFilter) return false;
       if (normalizedQuery && !row.product.normalizedName.includes(normalizedQuery)) return false;
       if (filter === 'all') return true;
       if (filter === 'empty') return row.totalQuantity === 0;
       if (!row.nearestBatch) return false;
       return getExpiryStatus(row.nearestBatch, preferences, now) === filter;
+    }).sort((a, b) => {
+      if (sort === 'name') return a.product.name.localeCompare(b.product.name, 'zh-Hant');
+      if (sort === 'updated') return b.product.updatedAt.localeCompare(a.product.updatedAt) || a.product.id.localeCompare(b.product.id);
+      return 0;
     });
-  }, [filter, normalizedQuery, now, preferences, rows]);
+  }, [filter, normalizedQuery, now, preferences, rows, categoryFilter, sort]);
   const visibleArchived =
     filter === 'archived'
       ? archivedProducts.filter(
-          (product) => !normalizedQuery || product.normalizedName.includes(normalizedQuery),
-        )
+          (product) => (!normalizedQuery || product.normalizedName.includes(normalizedQuery)) &&
+            (categoryFilter === '*' || product.categoryId === categoryFilter),
+        ).sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name, 'zh-Hant') : b.updatedAt.localeCompare(a.updatedAt))
       : [];
 
   const activeProductId = overlay?.productId;
@@ -217,6 +226,7 @@ export function InventoryPage() {
   }
 
   function closeStock() {
+    if (savingRef.current) return;
     if (overlay?.kind === 'stock' && overlay.returnTo === 'details') {
       setOverlay({ kind: 'details', productId: overlay.productId });
     } else {
@@ -249,6 +259,7 @@ export function InventoryPage() {
   }
 
   async function submitStock() {
+    if (savingRef.current) return;
     if (overlay?.kind !== 'stock' || !selectedProduct) return;
     if (!Number.isSafeInteger(stockAmountNumber) || stockAmountNumber < 1) {
       setDialogError('請輸入正整數數量');
@@ -263,6 +274,7 @@ export function InventoryPage() {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setDialogError('');
     try {
@@ -281,12 +293,15 @@ export function InventoryPage() {
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : '庫存處理失敗');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
   async function saveProduct() {
+    if (savingRef.current) return;
     if (overlay?.kind !== 'product-edit' || !editOriginal) return;
+    savingRef.current = true;
     setSaving(true);
     setDialogError('');
     try {
@@ -296,17 +311,20 @@ export function InventoryPage() {
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : '儲存失敗');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
   async function saveBatch() {
+    if (savingRef.current) return;
     if (overlay?.kind !== 'batch-edit' || !batchDraft) return;
     const quantity = Number(batchDraft.quantity);
     if (!Number.isSafeInteger(quantity) || quantity < 0) {
       setDialogError('盤點後數量必須是 0 以上的整數');
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     setDialogError('');
     try {
@@ -324,16 +342,23 @@ export function InventoryPage() {
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : '批次儲存失敗');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
   async function changeArchived(productId: string, archived: boolean) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       await setProductArchived(productId, archived);
       setMessage(archived ? '商品已封存' : '商品已解除封存');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '封存狀態更新失敗');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }
 
@@ -447,6 +472,20 @@ export function InventoryPage() {
         </Button>
       </Stack>
 
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <TextField select fullWidth size="small" label="篩選分類" value={categoryFilter}
+          slotProps={{ select: { native: true } }} onChange={(event) => setCategoryFilter(event.target.value)}>
+          <option value="*">全部分類</option>
+          <option value="">未分類</option>
+          {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+        </TextField>
+        <TextField select fullWidth size="small" label="排序方式" value={sort}
+          slotProps={{ select: { native: true } }} onChange={(event) => setSort(event.target.value)}>
+          <option value="expiry">{filter === 'archived' ? '最近更新（封存商品）' : '先到期優先'}</option>
+          <option value="name">商品名稱</option>
+          <option value="updated">最近更新</option>
+        </TextField>
+      </Stack>
       <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5, mx: -2, px: 2 }}>
         {filters.map((item) => (
           <Chip
@@ -676,7 +715,7 @@ export function InventoryPage() {
           {overlay?.kind === 'stock' && overlay.action === 'discard' ? '丟棄庫存' : '記錄消耗'}
         </DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 0.5 }}>
+          <Stack component="fieldset" disabled={saving} spacing={2} sx={{ border: 0, m: 0, p: 0, pt: 0.5, minWidth: 0 }}>
             {dialogError && <Alert severity="error">{dialogError}</Alert>}
             <Box>
               <Typography sx={{ fontWeight: 750 }}>{selectedProduct?.name}</Typography>
@@ -743,7 +782,7 @@ export function InventoryPage() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={closeStock}>
+          <Button disabled={saving} onClick={closeStock}>
             {overlay?.kind === 'stock' && overlay.action === 'discard' ? '保留現況' : '取消'}
           </Button>
           <Button
@@ -762,6 +801,7 @@ export function InventoryPage() {
       <Dialog
         open={overlay?.kind === 'batch-edit'}
         onClose={() =>
+          !savingRef.current &&
           overlay?.kind === 'batch-edit' &&
           setOverlay({ kind: 'details', productId: overlay.productId })
         }
@@ -772,7 +812,7 @@ export function InventoryPage() {
         <DialogTitle>編輯批次</DialogTitle>
         <DialogContent>
           {batchDraft && (
-            <Stack spacing={2} sx={{ pt: 0.5 }}>
+            <Stack component="fieldset" disabled={saving} spacing={2} sx={{ border: 0, m: 0, p: 0, pt: 0.5, minWidth: 0 }}>
               {dialogError && <Alert severity="error">{dialogError}</Alert>}
               <TextField
                 autoFocus
@@ -826,6 +866,7 @@ export function InventoryPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button
+            disabled={saving}
             onClick={() =>
               overlay?.kind === 'batch-edit' &&
               setOverlay({ kind: 'details', productId: overlay.productId })
@@ -841,13 +882,13 @@ export function InventoryPage() {
 
       <Dialog
         open={overlay?.kind === 'product-edit'}
-        onClose={() => setOverlay(null)}
+        onClose={() => !savingRef.current && setOverlay(null)}
         fullWidth
         maxWidth="xs"
       >
         <DialogTitle>編輯商品</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 0.5 }}>
+          <Stack component="fieldset" disabled={saving} spacing={2} sx={{ border: 0, m: 0, p: 0, pt: 0.5, minWidth: 0 }}>
             <TextField
               autoFocus
               label="商品名稱"
@@ -873,7 +914,7 @@ export function InventoryPage() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setOverlay(null)}>取消</Button>
+          <Button disabled={saving} onClick={() => setOverlay(null)}>取消</Button>
           <Button
             variant="contained"
             disabled={!editName.trim() || saving}

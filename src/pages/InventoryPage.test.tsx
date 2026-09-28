@@ -1,6 +1,7 @@
 import { ThemeProvider } from '@mui/material';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as database from '../data/database';
 import { MemoryRouter } from 'react-router-dom';
 import { TaipeiClockProvider } from '../context/TaipeiClockContext';
 import { addInventoryBatch, db, ensureDatabaseDefaults, consumeProduct } from '../data/database';
@@ -34,6 +35,45 @@ describe('InventoryPage stock operations', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('combines category filtering with name and expiry sorting', async () => {
+    await addInventoryBatch({ name: 'AAA 食品', categoryId: '', quantity: 1,
+      expiryDate: '2027-01-01', expiryPrecision: 'day' });
+    renderPage();
+    await screen.findByText('AAA 食品');
+    const names = () => screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent);
+    expect(names()).toEqual(['UI 測試食品', 'AAA 食品']);
+    fireEvent.change(screen.getByLabelText('排序方式'), { target: { value: 'name' } });
+    expect(names()).toEqual(['AAA 食品', 'UI 測試食品']);
+    fireEvent.change(screen.getByLabelText('篩選分類'), { target: { value: '' } });
+    expect(names()).toEqual(['AAA 食品']);
+    fireEvent.change(screen.getByPlaceholderText('搜尋商品'), { target: { value: '不存在' } });
+    expect(screen.getByText('找不到符合的商品')).toBeInTheDocument();
+  });
+
+  it('blocks repeated stock submissions and unlocks after failure', async () => {
+    let rejectWrite!: (error: Error) => void;
+    const remove = vi.spyOn(database, 'removeStock').mockImplementationOnce(
+      () => new Promise<string>((_, reject) => { rejectWrite = reject; }),
+    );
+    renderPage();
+    await screen.findByText('UI 測試食品');
+    fireEvent.click(screen.getByRole('button', { name: '查看批次' }));
+    fireEvent.click(await screen.findByRole('button', { name: '丟棄' }));
+    fireEvent.change(await screen.findByLabelText('丟棄原因（必填）'), { target: { value: '破損' } });
+    const button = screen.getByRole('button', { name: '丟棄 1 件' });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(remove).toHaveBeenCalledTimes(1);
+    rejectWrite(new Error('暫時無法寫入'));
+    expect(await screen.findByText('暫時無法寫入')).toBeInTheDocument();
+    expect(screen.getByLabelText('丟棄原因（必填）')).toHaveValue('破損');
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    expect(await screen.findByText('已記錄丟棄')).toBeInTheDocument();
+    expect(await db.movements.where('type').equals('discard').count()).toBe(1);
+    remove.mockRestore();
+  });
 
   it('preserves a stale draft without overwriting stock consumed elsewhere', async () => {
     renderPage();

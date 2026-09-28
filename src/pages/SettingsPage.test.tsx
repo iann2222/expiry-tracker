@@ -85,5 +85,9 @@ describe('SettingsPage preference drafts', () => {
       expect((await db.preferences.get('app'))?.themeMode).toBe('dark');
     });
     expect(urgentInput).toHaveValue(12);
+    fireEvent.click(screen.getByRole('button', { name: '儲存效期偏好' }));
+    await waitFor(async () => {
+      expect(await db.preferences.get('app')).toMatchObject({ urgentDays: 12, themeMode: 'dark' });
+    });
   });
 });

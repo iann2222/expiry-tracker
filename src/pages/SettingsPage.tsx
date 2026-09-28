@@ -145,25 +145,33 @@ export function SettingsPage() {
   async function savePreferences() {
     if (thresholdError) return;
     await runWrite(async () => {
-      const savedPreferences = {
-        ...draft,
-        id: "app",
-        updatedAt: new Date().toISOString(),
-      } satisfies AppPreferences;
-      await db.preferences.put(savedPreferences);
+      const savedPreferences = await db.transaction('rw', db.preferences, async () => {
+        const current = await db.preferences.get('app') ?? defaultPreferences;
+        const next = {
+          ...current,
+          urgentDays: draft.urgentDays,
+          soonDays: draft.soonDays,
+          colors: { ...draft.colors },
+          updatedAt: new Date().toISOString(),
+        };
+        await db.preferences.put(next);
+        return next;
+      });
       setDraft(savedPreferences);
       setDraftDirty(false);
       setMessage({ text: "偏好設定已儲存在此裝置", severity: "success" });
     }, "偏好設定儲存失敗");
   }
 
-  async function saveAppearance(partial: Partial<AppPreferences>) {
+  async function saveAppearance(partial: Partial<Pick<AppPreferences, 'themeMode' | 'showWeekday'>>) {
     await runWrite(async () => {
-      await db.preferences.put({
-        ...preferences,
-        ...partial,
-        id: "app",
-        updatedAt: new Date().toISOString(),
+      await db.transaction('rw', db.preferences, async () => {
+        const current = await db.preferences.get('app') ?? defaultPreferences;
+        await db.preferences.put({
+          ...current,
+          ...partial,
+          updatedAt: new Date().toISOString(),
+        });
       });
     }, "外觀設定儲存失敗");
   }
